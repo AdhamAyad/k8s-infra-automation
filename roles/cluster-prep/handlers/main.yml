@@ -1,0 +1,5 @@
+#SPDX-License-Identifier: MIT-0
+---
+# handlers file for roles/cluster-prep
+- name: Apply Netplan
+  command: netplan apply

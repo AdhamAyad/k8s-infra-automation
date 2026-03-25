@@ -1,0 +1,21 @@
+- name: Prepare all nodes for Kubernetes
+  hosts: all
+  become: yes
+  vars:
+    k8s_version: "1.34"
+  roles:
+    - cluster-prep
+    - install-containerd
+    - install-k8s-tools
+
+- name: Initialize Master Node
+  hosts: master
+  become: yes
+  roles:
+    - master-init
+
+- name: Join Worker Nodes
+  hosts: workers
+  become: yes
+  roles:
+    - worker-join

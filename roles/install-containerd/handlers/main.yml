@@ -1,0 +1,7 @@
+#SPDX-License-Identifier: MIT-0
+---
+# handlers file for roles/install-containerd
+- name: restart containerd
+  systemd:
+    name: containerd
+    state: restarted

@@ -1,0 +1,51 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for roles/install-containerd
+- name: Install dependencies
+  apt:
+    name: [apt-transport-https, ca-certificates, curl, gnupg, lsb-release]
+    state: present
+    update_cache: yes
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker APT repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+
+- name: Install containerd.io
+  apt:
+    name: containerd.io
+    state: present
+    update_cache: yes
+
+- name: Remove default containerd config to reset
+  file:
+    path: /etc/containerd/config.toml
+    state: absent
+
+- name: Generate clean containerd config
+  shell: containerd config default > /etc/containerd/config.toml
+
+- name: Fix CRI version and enable SystemdCgroup
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+
+- name: Remove disabled_plugins line to enable CRI
+  lineinfile:
+    path: /etc/containerd/config.toml
+    regexp: 'disabled_plugins'
+    state: absent
+  notify: restart containerd
+
+- name: Ensure containerd is running
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes

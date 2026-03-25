@@ -1,0 +1,11 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for roles/worker-join
+- name: Join Worker Node to Cluster
+  shell: "{{ hostvars['master-node'].join_command }} --ignore-preflight-errors=NumCPU,Mem"
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+
+- name: Wait for Worker to be Ready
+  pause:
+    seconds: 30
