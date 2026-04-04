@@ -1,0 +1,115 @@
+---
+# tasks file for roles/upgrade-worker
+- name: Extract Kubernetes minor version
+  set_fact:
+    k8s_minor_version: "{{ k8s_version.split('.')[0] }}.{{ k8s_version.split('.')[1] }}"
+
+- name: Prepare and install Kubeadm (Debian Family)
+  block:
+    - name: Update Kubernetes APT repository
+      copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/deb/ /\n"
+        owner: root
+        group: root
+        mode: '0644'
+      register: repo_update
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: repo_update.changed
+
+    - name: Unhold kubeadm
+      command: apt-mark unhold kubeadm
+
+    - name: Install target kubeadm version
+      apt:
+        name: "kubeadm={{ k8s_version }}-*"
+        state: present
+        update_cache: yes
+        allow_downgrade: yes
+
+    - name: Hold kubeadm
+      command: apt-mark hold kubeadm
+  when: ansible_os_family == "Debian"
+
+- name: Prepare and install Kubeadm (RedHat Family)
+  block:
+    - name: Add Kubernetes YUM repository
+      yum_repository:
+        name: kubernetes
+        description: Kubernetes
+        baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/rpm/"
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/rpm/repodata/repomd.xml.key"
+        exclude: kubelet kubeadm kubectl
+
+    - name: Install target kubeadm version
+      yum:
+        name: "kubeadm-{{ k8s_version }}"
+        state: present
+        disable_excludes: kubernetes
+        allow_downgrade: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Get current Kubelet version
+  command: "kubelet --version"
+  register: kubelet_version_output
+  changed_when: false
+
+- name: Upgrade worker node configuration
+  command: "kubeadm upgrade node"
+  when: "k8s_version not in kubelet_version_output.stdout"
+
+- name: Drain the worker node (Delegated to Master)
+  command: "kubectl drain {{ ansible_hostname | lower }} --ignore-daemonsets --delete-emptydir-data --force"
+  delegate_to: "{{ groups['master'][0] }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Install Kubelet and Kubectl (Debian Family)
+  block:
+    - name: Unhold kubelet and kubectl
+      command: apt-mark unhold kubelet kubectl
+
+    - name: Install target kubelet and kubectl
+      apt:
+        name:
+          - "kubelet={{ k8s_version }}-*"
+          - "kubectl={{ k8s_version }}-*"
+        state: present
+        allow_downgrade: yes
+
+    - name: Hold kubelet and kubectl
+      command: apt-mark hold kubelet kubectl
+  when: ansible_os_family == "Debian"
+
+- name: Install Kubelet and Kubectl (RedHat Family)
+  block:
+    - name: Install target kubelet and kubectl
+      yum:
+        name: 
+          - "kubelet-{{ k8s_version }}"
+          - "kubectl-{{ k8s_version }}"
+        state: present
+        disable_excludes: kubernetes
+        allow_downgrade: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Daemon reload and restart kubelet
+  systemd:
+    daemon_reload: yes
+    name: kubelet
+    state: restarted
+
+- name: Wait for Kubelet to stabilize
+  pause:
+    seconds: 15
+
+- name: Uncordon the worker node (Delegated to Master)
+  command: "kubectl uncordon {{ ansible_hostname | lower }}"
+  delegate_to: "{{ groups['master'][0] }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf

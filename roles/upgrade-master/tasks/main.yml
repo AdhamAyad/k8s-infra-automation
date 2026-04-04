@@ -1,0 +1,121 @@
+---
+# tasks file for roles/upgrade-master
+- name: Extract Kubernetes minor version
+  set_fact:
+    k8s_minor_version: "{{ k8s_version.split('.')[0] }}.{{ k8s_version.split('.')[1] }}"
+
+- name: Prepare and install Kubeadm (Debian Family)
+  block:
+    - name: Update Kubernetes APT repository
+      copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        content: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/deb/ /\n"
+        owner: root
+        group: root
+        mode: '0644'
+      register: repo_update
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: repo_update.changed
+
+    - name: Unhold kubeadm
+      command: apt-mark unhold kubeadm
+
+    - name: Install target kubeadm version
+      apt:
+        name: "kubeadm={{ k8s_version }}-*"
+        state: present
+        update_cache: yes
+        allow_downgrade: yes
+
+    - name: Hold kubeadm
+      command: apt-mark hold kubeadm
+  when: ansible_os_family == "Debian"
+
+- name: Prepare and install Kubeadm (RedHat Family)
+  block:
+    - name: Add Kubernetes YUM repository
+      yum_repository:
+        name: kubernetes
+        description: Kubernetes
+        baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/rpm/"
+        enabled: yes
+        gpgcheck: yes
+        gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/rpm/repodata/repomd.xml.key"
+        exclude: kubelet kubeadm kubectl
+
+    - name: Install target kubeadm version
+      yum:
+        name: "kubeadm-{{ k8s_version }}"
+        state: present
+        disable_excludes: kubernetes
+        allow_downgrade: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Get current Control Plane version
+  shell: "kubectl get pods -n kube-system -l component=kube-apiserver -o jsonpath='{.items[0].spec.containers[0].image}' | awk -F':' '{print $2}'"
+  register: control_plane_version
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Apply kubeadm upgrade (Primary Master ONLY)
+  command: "kubeadm upgrade apply v{{ k8s_version }} -y"
+  when: 
+    - inventory_hostname == groups['master'][0]
+    - control_plane_version.stdout != 'v' + k8s_version
+
+- name: Upgrade secondary control planes (HA Masters ONLY)
+  command: "kubeadm upgrade node"
+  when: inventory_hostname != groups['master'][0]
+
+- name: Drain the master node
+  command: "kubectl drain {{ ansible_hostname | lower }} --ignore-daemonsets --delete-emptydir-data --force"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Install Kubelet and Kubectl (Debian Family)
+  block:
+    - name: Unhold kubelet and kubectl
+      command: apt-mark unhold kubelet kubectl
+
+    - name: Install target kubelet and kubectl
+      apt:
+        name:
+          - "kubelet={{ k8s_version }}-*"
+          - "kubectl={{ k8s_version }}-*"
+        state: present
+        allow_downgrade: yes
+
+    - name: Hold kubelet and kubectl
+      command: apt-mark hold kubelet kubectl
+  when: ansible_os_family == "Debian"
+
+- name: Install Kubelet and Kubectl (RedHat Family)
+  block:
+    - name: Install target kubelet and kubectl
+      yum:
+        name: 
+          - "kubelet-{{ k8s_version }}"
+          - "kubectl-{{ k8s_version }}"
+        state: present
+        disable_excludes: kubernetes
+        allow_downgrade: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Daemon reload and restart kubelet
+  systemd:
+    daemon_reload: yes
+    name: kubelet
+    state: restarted
+
+- name: Wait for API server to stabilize
+  pause:
+    seconds: 15
+
+- name: Uncordon the master node
+  command: "kubectl uncordon {{ ansible_hostname | lower }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf

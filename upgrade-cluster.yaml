@@ -1,0 +1,20 @@
+---
+- name: Upgrade Kubernetes Master Node
+  hosts: master
+  become: yes
+  tasks:
+    - name: Fail if k8s_version is not provided
+      fail:
+        msg: "Please provide the target version. Example: ansible-playbook ... -e 'k8s_version=1.30.0'"
+      when: k8s_version is not defined
+  roles:
+    - upgrade-master
+
+- name: Upgrade Kubernetes Worker Nodes
+  hosts: workers
+  become: yes
+  serial: 1
+  vars:
+    k8s_version: "1.30.0"
+  roles:
+    - upgrade-worker
