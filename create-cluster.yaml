@@ -19,3 +19,13 @@
   become: yes
   roles:
     - worker-join
+
+- name: Install Cluster Addons (Helm & MetalLB)
+  hosts: master
+  become: yes
+  become_user: ubuntu 
+  vars:
+    metallb_ip_range: "172.21.79.200-172.21.79.210"
+  roles:
+    - install-helm
+    - install-metallb

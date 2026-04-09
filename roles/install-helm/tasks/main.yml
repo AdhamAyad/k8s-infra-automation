@@ -1,0 +1,21 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for roles/install-helm
+- name: Check if Helm is already installed
+  command: helm version
+  register: helm_check
+  ignore_errors: yes
+  changed_when: false
+
+- name: Download Helm installation script
+  get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get_helm.sh
+    mode: '0700'
+  when: helm_check.rc != 0
+
+- name: Execute Helm installation script
+  command: /tmp/get_helm.sh
+  become: yes
+  become_user: root
+  when: helm_check.rc != 0

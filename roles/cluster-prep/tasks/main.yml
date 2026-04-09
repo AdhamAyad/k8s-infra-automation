@@ -65,31 +65,6 @@
     ip_addr: "{{ ansible_default_ipv4.address }}"
     gateway: "{{ ansible_default_ipv4.gateway }}"
 
-- name: Create static Netplan configuration
-  copy:
-    dest: /etc/netplan/99-custom-static.yaml
-    content: |
-      network:
-        version: 2
-        ethernets:
-          {{ iface }}:
-            dhcp4: no
-            addresses:
-              - {{ ip_addr }}/24
-            routes:
-              - to: default
-                via: {{ gateway }}
-            nameservers:
-              addresses: [8.8.8.8, 1.1.1.1, {{ gateway }}]
-    owner: root
-    group: root
-    mode: '0644'
-
-- name: Apply Netplan to freeze the IP
-  shell: netplan apply
-  async: 45
-  poll: 0
-  ignore_errors: yes
 # - name: Configure Static IP via Netplan
 #   copy:
 #     dest: /etc/netplan/99-static-ip.yaml

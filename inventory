@@ -1,5 +1,5 @@
 [master]
-master-node ansible_host=172.21.44.40 ansible_user=ubuntu
+master-node ansible_host=172.21.79.155 ansible_user=ubuntu
 
 [workers]
-worker-01 ansible_host=172.21.36.95 ansible_user=ubuntu
+worker-01 ansible_host=172.21.65.248 ansible_user=ubuntu
